@@ -11,8 +11,9 @@ const orders = require('./lib/orders');
 const pay = require('./lib/payments');
 const V = require('./lib/views');
 
-const required = ['MYSQL_HOST', 'MYSQL_USER', 'MYSQL_DATABASE', 'DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET', 'DISCORD_REDIRECT_URI', 'SESSION_SECRET'];
-const missing = required.filter((k) => !process.env[k]);
+const dbOk = { MYSQL_HOST: process.env.MYSQL_HOST || process.env.MYSQLHOST, MYSQL_USER: process.env.MYSQL_USER || process.env.MYSQLUSER, 'MYSQL_DB': process.env.MYSQL_DB || process.env.MYSQL_DATABASE || process.env.MYSQLDATABASE };
+const required = ['DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET', 'DISCORD_REDIRECT_URI', 'SESSION_SECRET'];
+const missing = [...Object.keys(dbOk).filter((k) => !dbOk[k]), ...required.filter((k) => !process.env[k])];
 if (missing.length) { console.error('❌ Faltam variáveis de ambiente:', missing.join(', ')); process.exit(1); }
 if (process.env.SESSION_SECRET.length < 24) { console.error('❌ SESSION_SECRET demasiado curto (mín. 24 caracteres).'); process.exit(1); }
 
@@ -193,4 +194,4 @@ app.use((req, res) => { res.status(404); page(res, 'Não encontrado', V.errorPag
   setInterval(() => orders.syncDeliveryStatus().catch((e) => console.error('sync:', e.message)), 10e3);
   const port = Number(process.env.PORT || 3000);
   app.listen(port, () => console.log(`✅ Loja online na porta ${port} (pagamento: ${pay.mode()})`));
-})().catch((e) => { console.error('❌ Erro ao arrancar a loja:', e); process.exit(1); });
+})().catch((e) => { console.error('❌ Erro ao arrancar a loja:', e.code || e.message, e.code === 'ETIMEDOUT' || e.code === 'ECONNREFUSED' ? '→ o MYSQL_HOST/MYSQL_PORT estão errados ou o MySQL não aceita ligações do Railway.' : ''); process.exit(1); });
