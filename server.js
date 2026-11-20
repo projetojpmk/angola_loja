@@ -3,9 +3,10 @@ require('dotenv').config();
 const path = require('path');
 const express = require('express');
 const cookieSession = require('cookie-session');
+const multer = require('multer');
 const { q } = require('./lib/db');
 const { ensureSchema } = require('./lib/schema');
-const { token, limited, esc } = require('./lib/util');
+const { token, limited, esc, youtubeId } = require('./lib/util');
 const discord = require('./lib/discord');
 const orders = require('./lib/orders');
 const pay = require('./lib/payments');
@@ -27,7 +28,7 @@ app.use((req, res, next) => {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'same-origin',
-    'Content-Security-Policy': "default-src 'self'; img-src 'self' https://cdn.discordapp.com data:; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'none'; form-action 'self'; frame-ancestors 'none'",
+    'Content-Security-Policy': "default-src 'self'; img-src 'self' https: data:; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'none'; frame-src https://www.youtube-nocookie.com; form-action 'self'; frame-ancestors 'none'",
   });
   next();
 });
@@ -64,7 +65,7 @@ app.use((req, res, next) => {
   res.locals.user = u ? { ...u, admin: ADMINS.has(u.id) } : null;
   const f = req.session.flash; delete req.session.flash;
   res.locals.flash = f || null;
-  if (req.method === 'POST' && req.body._csrf !== req.session.csrf) return res.status(403).send('Pedido inválido. Volta atrás e tenta de novo.');
+  if (req.method === 'POST' && !req.is('multipart/form-data') && req.body._csrf !== req.session.csrf) return res.status(403).send('Pedido inválido. Volta atrás e tenta de novo.');
   next();
 });
 
@@ -75,15 +76,32 @@ const needLogin = (req, res, next) => res.locals.user ? next() : res.redirect('/
 const needAdmin = (req, res, next) => (res.locals.user && res.locals.user.admin) ? next() : res.status(403).send('Sem permissão.');
 
 // ---------- Público ----------
+const parseProducts = (list) => { list.forEach((p) => { if (typeof p.payload === 'string') p.payload = JSON.parse(p.payload); }); return list; };
+
 app.get('/', wrap(async (req, res) => {
-  const products = await q('SELECT * FROM store_products WHERE active = 1 ORDER BY category, sort, id');
-  products.forEach((p) => { if (typeof p.payload === 'string') p.payload = JSON.parse(p.payload); });
-  res.send(V.layout({ title: 'Loja', user: res.locals.user, csrf: res.locals.csrf, flash: res.locals.flash, q: String(req.query.q || '').slice(0, 40), body: V.home({ products, csrf: res.locals.csrf, user: res.locals.user, cat: String(req.query.cat || 'todos'), q: String(req.query.q || '').slice(0, 40) }) }));
+  const products = parseProducts(await q('SELECT * FROM store_products WHERE active = 1 ORDER BY category, sort, id'));
+  const qs = String(req.query.q || '').slice(0, 40);
+  res.send(V.layout({ title: 'Loja', user: res.locals.user, csrf: res.locals.csrf, flash: res.locals.flash, q: qs, body: V.home({ products, cat: String(req.query.cat || 'todos'), q: qs }) }));
+}));
+
+app.get('/produto/:slug', wrap(async (req, res) => {
+  const [p] = parseProducts(await q('SELECT * FROM store_products WHERE slug = ? AND active = 1', [String(req.params.slug).slice(0, 40)]));
+  if (!p) { res.status(404); return page(res, 'Não encontrado', V.errorPage('Produto não encontrado', 'Este produto não existe ou já não está à venda.')); }
+  page(res, p.name, V.productPage({ p, csrf: res.locals.csrf, user: res.locals.user }));
+}));
+
+const getSetting = async (k) => { const [r] = await q('SELECT v FROM store_settings WHERE k = ?', [k]); return r ? r.v : ''; };
+
+app.get('/tutorial', wrap(async (req, res) => {
+  const videoId = youtubeId(await getSetting('tutorial_video'));
+  page(res, 'Como comprar', V.tutorialPage({ videoId, isAdmin: !!(res.locals.user && res.locals.user.admin) }));
 }));
 
 app.get('/login', (req, res) => {
   const state = token();
   req.session.oauthState = state;
+  const next = String(req.query.next || '');
+  req.session.next = /^\/[A-Za-z0-9\-_\/?=&%.]*$/.test(next) && !next.startsWith('//') ? next.slice(0, 120) : '/';
   res.redirect(discord.authorizeUrl(state));
 });
 
@@ -95,7 +113,8 @@ app.get('/auth/callback', wrap(async (req, res) => {
   const u = await discord.exchange(String(code));
   req.session.user = { id: u.id, name: u.name, avatar: u.avatar };
   req.session.csrf = token();
-  res.redirect('/');
+  const go = req.session.next || '/'; delete req.session.next;
+  res.redirect(go);
 }));
 
 app.post('/logout', (req, res) => { req.session = null; res.redirect('/'); });
@@ -121,17 +140,30 @@ async function ownOrder(req, res) {
 app.get('/encomenda/:code', needLogin, wrap(async (req, res) => {
   const o = await ownOrder(req, res);
   if (!o) return res.status(404).send('Encomenda não encontrada.');
-  page(res, 'Encomenda ' + o.code, V.orderPage({ o, csrf: res.locals.csrf }));
+  const [proof] = await q('SELECT filename, size FROM store_proofs WHERE order_id = ?', [o.id]);
+  const [product] = parseProducts(await q('SELECT * FROM store_products WHERE id = ?', [o.product_id]));
+  page(res, 'Encomenda ' + o.code, V.orderPage({ o, csrf: res.locals.csrf, proof, product }));
 }));
 
-app.post('/encomenda/:code/comprovativo', needLogin, wrap(async (req, res) => {
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 3 * 1024 * 1024, files: 1, fields: 4, parts: 6 } });
+app.post('/encomenda/:code/comprovativo', needLogin, (req, res, next) => {
+  upload.single('proof')(req, res, (err) => {
+    if (err) {
+      flash(req, 'bad', err.code === 'LIMIT_FILE_SIZE' ? 'Ficheiro demasiado grande (máximo 3 MB).' : 'Não consegui ler o ficheiro. Tenta outra vez.');
+      return res.redirect('/encomenda/' + encodeURIComponent(String(req.params.code).slice(0, 12)));
+    }
+    next();
+  });
+}, wrap(async (req, res) => {
   if (pay.mode() !== 'manual') return res.status(404).end();
+  if (!req.body || req.body._csrf !== req.session.csrf) return res.status(403).send('Pedido inválido. Volta atrás e tenta de novo.');
+  if (limited('proof:' + res.locals.user.id, 8, 600e3)) { flash(req, 'bad', 'Calma! Tenta daqui a uns minutos.'); return res.redirect('/encomendas'); }
   const o = await ownOrder(req, res);
   if (!o) return res.status(404).send('Encomenda não encontrada.');
-  const note = String(req.body.note || '').trim().slice(0, 200);
-  if (!note) { flash(req, 'bad', 'Escreve a referência ou o link do comprovativo.'); return res.redirect('/encomenda/' + o.code); }
-  await q("UPDATE store_orders SET status = 'awaiting_review', proof_note = ? WHERE id = ? AND status = 'pending'", [note, o.id]);
-  flash(req, 'ok', 'Recebido! A administração vai confirmar o pagamento.');
+  if (!req.file) { flash(req, 'bad', 'Escolhe o ficheiro do comprovativo.'); return res.redirect('/encomenda/' + o.code); }
+  const r = await orders.saveProof(o, req.file, String(req.body.note || '').trim().slice(0, 200));
+  if (r.error) { flash(req, 'bad', r.error); return res.redirect('/encomenda/' + o.code); }
+  flash(req, 'ok', 'Comprovativo recebido! A administração vai confirmar o pagamento.');
   res.redirect('/encomenda/' + o.code);
 }));
 
@@ -151,7 +183,7 @@ app.get('/encomendas', needLogin, wrap(async (req, res) => {
 app.get('/admin', needLogin, needAdmin, wrap(async (req, res) => {
   const filter = ['awaiting_review', 'pending', 'failed', 'paid', 'delivered', 'all'].includes(req.query.estado) ? req.query.estado : 'awaiting_review';
   const where = filter === 'all' ? '' : 'WHERE o.status = ?';
-  const list = await q(`SELECT o.*, d.error AS delivery_error FROM store_orders o LEFT JOIN store_deliveries d ON d.order_id = o.id ${where} ORDER BY o.id DESC LIMIT 100`, filter === 'all' ? [] : [filter]);
+  const list = await q(`SELECT o.*, d.error AS delivery_error, (SELECT COUNT(*) FROM store_proofs sp WHERE sp.order_id = o.id) AS has_proof FROM store_orders o LEFT JOIN store_deliveries d ON d.order_id = o.id ${where} ORDER BY o.id DESC LIMIT 100`, filter === 'all' ? [] : [filter]);
   page(res, 'Admin', V.adminOrders({ orders: list, filter, csrf: res.locals.csrf }));
 }));
 
@@ -172,17 +204,86 @@ app.post('/admin/encomenda/:id/:acao', needLogin, needAdmin, wrap(async (req, re
   res.redirect('/admin');
 }));
 
+app.get('/admin/tutorial', needLogin, needAdmin, wrap(async (req, res) => {
+  page(res, 'Tutorial', V.adminTutorial({ videoId: youtubeId(await getSetting('tutorial_video')), csrf: res.locals.csrf }));
+}));
+
+app.post('/admin/tutorial', needLogin, needAdmin, wrap(async (req, res) => {
+  const raw = String(req.body.url || '').trim().slice(0, 200);
+  const id = raw ? youtubeId(raw) : '';
+  if (raw && !id) return page(res, 'Tutorial', V.adminTutorial({ videoId: null, csrf: res.locals.csrf, error: 'Não reconheci esse link do YouTube.', value: raw }));
+  await q('INSERT INTO store_settings (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)', ['tutorial_video', id || '']);
+  flash(req, 'ok', id ? 'Vídeo guardado.' : 'Vídeo removido.');
+  res.redirect('/admin/tutorial');
+}));
+
+app.get('/admin/comprovativo/:id', needLogin, needAdmin, wrap(async (req, res) => {
+  const [f] = await q('SELECT filename, mime, data FROM store_proofs WHERE order_id = ?', [Number(req.params.id) || 0]);
+  if (!f) return res.status(404).send('Sem comprovativo.');
+  res.set({ 'Content-Type': f.mime, 'Content-Disposition': `inline; filename="${String(f.filename).replace(/[^\w.\-]/g, '_')}"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'" });
+  res.send(f.data);
+}));
+
 app.get('/admin/produtos', needLogin, needAdmin, wrap(async (req, res) => {
   const products = await q('SELECT * FROM store_products ORDER BY category, sort, id');
-  products.forEach((p) => { if (typeof p.payload === 'string') p.payload = JSON.parse(p.payload); });
-  page(res, 'Produtos', V.adminProducts({ products, csrf: res.locals.csrf }));
+  page(res, 'Produtos', V.adminProducts({ products }));
+}));
+
+const BLANK = { name: '', category: 'carros', kind: 'vehicle', price_kz: 0, sort: 0, description: '', details: '', image_url: '', payload: '{}', active: 1 };
+app.get('/admin/produtos/novo', needLogin, needAdmin, (req, res) => page(res, 'Novo produto', V.adminProductForm({ p: BLANK, csrf: res.locals.csrf })));
+
+function readProduct(body) {
+  const f = {
+    name: String(body.name || '').trim().slice(0, 80),
+    category: ['diamantes', 'vip', 'carros', 'casas', 'outros'].includes(body.category) ? body.category : 'outros',
+    kind: ['diamonds', 'vip', 'vehicle', 'house', 'item'].includes(body.kind) ? body.kind : 'item',
+    price_kz: Math.floor(Number(body.price_kz)),
+    sort: Math.floor(Number(body.sort)) || 0,
+    description: String(body.description || '').trim().slice(0, 255),
+    details: String(body.details || '').replace(/\r/g, '').trim().slice(0, 1500),
+    image_url: String(body.image_url || '').trim().slice(0, 500),
+    active: body.active === '0' ? 0 : 1,
+  };
+  let error = null;
+  let payload = {};
+  try { payload = JSON.parse(String(body.payload || '{}')); if (typeof payload !== 'object' || Array.isArray(payload) || payload === null) throw new Error(); } catch { error = 'Os dados da entrega têm de ser um JSON válido, por exemplo {"model":411}.'; }
+  if (!f.name) error = 'O nome é obrigatório.';
+  else if (!Number.isFinite(f.price_kz) || f.price_kz < 0 || f.price_kz > 10000000) error = 'Preço inválido.';
+  else if (f.image_url && !/^https:\/\/\S+$/i.test(f.image_url)) error = 'A imagem tem de ser um link https.';
+  f.payload = JSON.stringify(payload);
+  return { f, error };
+}
+
+const slugify = (n) => n.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'produto';
+
+app.post('/admin/produtos/novo', needLogin, needAdmin, wrap(async (req, res) => {
+  const { f, error } = readProduct(req.body);
+  if (error) return page(res, 'Novo produto', V.adminProductForm({ p: { ...f }, csrf: res.locals.csrf, error }));
+  const base = slugify(f.name);
+  for (let i = 0; i < 20; i++) {
+    const slug = i ? `${base}-${i + 1}` : base;
+    try {
+      await q('INSERT INTO store_products (slug, name, category, kind, description, details, image_url, price_kz, payload, active, sort) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+        [slug, f.name, f.category, f.kind, f.description, f.details || null, f.image_url || null, f.price_kz, f.payload, f.active, f.sort]);
+      flash(req, 'ok', 'Produto criado.');
+      return res.redirect('/admin/produtos');
+    } catch (e) { if (e.code !== 'ER_DUP_ENTRY') throw e; }
+  }
+  flash(req, 'bad', 'Não consegui criar o produto.'); res.redirect('/admin/produtos');
+}));
+
+app.get('/admin/produtos/:id', needLogin, needAdmin, wrap(async (req, res) => {
+  const [p] = await q('SELECT * FROM store_products WHERE id = ?', [Number(req.params.id) || 0]);
+  if (!p) return res.status(404).send('Produto não encontrado.');
+  page(res, 'Editar produto', V.adminProductForm({ p, csrf: res.locals.csrf }));
 }));
 
 app.post('/admin/produtos/:id', needLogin, needAdmin, wrap(async (req, res) => {
-  const name = String(req.body.name || '').trim().slice(0, 80);
-  const price = Math.floor(Number(req.body.price_kz));
-  if (!name || !Number.isFinite(price) || price < 0 || price > 10000000) { flash(req, 'bad', 'Dados inválidos.'); return res.redirect('/admin/produtos'); }
-  await q('UPDATE store_products SET name = ?, price_kz = ?, active = ? WHERE id = ?', [name, price, req.body.active === '0' ? 0 : 1, Number(req.params.id) || 0]);
+  const id = Number(req.params.id) || 0;
+  const { f, error } = readProduct(req.body);
+  if (error) return page(res, 'Editar produto', V.adminProductForm({ p: { ...f, id }, csrf: res.locals.csrf, error }));
+  await q('UPDATE store_products SET name=?, category=?, kind=?, description=?, details=?, image_url=?, price_kz=?, payload=?, active=?, sort=? WHERE id=?',
+    [f.name, f.category, f.kind, f.description, f.details || null, f.image_url || null, f.price_kz, f.payload, f.active, f.sort, id]);
   flash(req, 'ok', 'Produto guardado.');
   res.redirect('/admin/produtos');
 }));

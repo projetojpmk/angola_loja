@@ -80,3 +80,49 @@ footer .wrap { display: flex; align-items: center; gap: 16px; } footer img { bor
   .card.prod .body { padding: 12px; } .card.prod .price { font-size: 20px; } .btn.buy, button.buy { font-size: 14px; padding: 10px 8px; }
   .pills { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; } .pill { white-space: nowrap; }
 }
+
+/* ---------- v2: produto, encomenda, formulários ---------- */
+.card.prod .art { display: block; } .card.prod .art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.card.prod h3 a { color: var(--text); } .card.prod h3 a:hover { text-decoration: none; color: var(--accent); }
+.btn.buy { display: inline-flex; margin-top: auto; }
+.box.empty { text-align: center; color: var(--mute); padding: 36px 20px; }
+.crumbs { color: var(--mute); font-size: 14px; margin: 0 0 18px; } .crumbs a { color: var(--mute); } .crumbs a:hover { color: var(--text); }
+.tag { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--accent); background: rgba(43,192,247,.1); border: 1px solid rgba(43,192,247,.25); border-radius: 999px; padding: 3px 12px; }
+.pdp { display: grid; grid-template-columns: minmax(0, 460px) 1fr; gap: 36px; align-items: start; }
+.pdp-art { border-radius: 16px; overflow: hidden; border: 1px solid var(--line); background: #d9eafb; aspect-ratio: 1/1; line-height: 0; }
+.pdp-art svg, .pdp-art img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.pdp-price { font-family: var(--display); font-weight: 800; font-size: 38px; margin: 4px 0 10px; }
+.lead { color: #c4d4e1; font-size: 17px; margin: 0 0 16px; }
+.checks { list-style: none; padding: 0; margin: 0 0 24px; display: grid; gap: 10px; }
+.checks li { position: relative; padding-left: 30px; color: var(--text); }
+.checks li::before { content: ""; position: absolute; left: 0; top: 3px; width: 18px; height: 18px; border-radius: 50%; background: rgba(43,192,247,.15) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232bc0f7' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 12 4 4 8-8'/%3E%3C/svg%3E") center/12px no-repeat; }
+.big-btn { width: 100%; padding: 15px 20px; font-size: 17px; border-radius: 12px; }
+.fine { color: var(--mute); font-size: 13px; margin: 12px 0 0; }
+.how { list-style: none; counter-reset: s; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.how li { counter-increment: s; background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; display: flex; flex-direction: column; gap: 6px; }
+.how li::before { content: counter(s); width: 30px; height: 30px; border-radius: 50%; background: rgba(43,192,247,.14); color: var(--accent); font-weight: 800; display: grid; place-items: center; font-family: var(--display); }
+.how span { color: var(--mute); font-size: 14px; }
+
+.checkout { display: grid; grid-template-columns: 1fr 320px; gap: 28px; align-items: start; }
+.steps { list-style: none; display: flex; gap: 10px; padding: 0; margin: 0 0 20px; }
+.steps li { flex: 1; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; color: var(--mute); background: var(--card2); font-weight: 600; font-size: 14px; }
+.steps li i { font-style: normal; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; background: var(--line); color: var(--text); flex: none; }
+.steps li.now { color: var(--text); border-color: var(--accent); } .steps li.now i { background: var(--accent); color: var(--onaccent); }
+.steps li.done { color: var(--text); } .steps li.done i { background: var(--ok); color: #04241a; }
+.sum .sum-art { border-radius: 10px; overflow: hidden; line-height: 0; background: #d9eafb; } .sum-art svg, .sum-art img { width: 100%; height: auto; display: block; }
+.kv.small { grid-template-columns: 110px 1fr; font-size: 14px; margin-top: 10px; }
+.amount { font-family: var(--display); font-size: 22px; }
+input.file { padding: 9px; } input.file::file-selector-button { margin-right: 12px; border: 0; border-radius: 8px; background: var(--accent); color: var(--onaccent); font-weight: 700; padding: 8px 14px; cursor: pointer; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; } code { background: var(--bg); border: 1px solid var(--line2); border-radius: 6px; padding: 1px 6px; font-size: 13px; }
+textarea { resize: vertical; }
+@media (max-width: 860px) { .pdp, .checkout { grid-template-columns: 1fr; } .how { grid-template-columns: 1fr; } .steps { flex-direction: column; } .two { grid-template-columns: 1fr; } .pdp-price { font-size: 32px; } }
+
+/* ---------- v2.1: tutorial e passos do Express ---------- */
+.navlink { color: var(--mute); font-size: 15px; font-weight: 500; padding: 0 4px; } .navlink:hover { color: var(--text); text-decoration: none; }
+.video { position: relative; aspect-ratio: 16 / 9; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); background: #000; max-width: 960px; }
+.video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.video.empty { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 14px; text-align: center; color: var(--mute); background: var(--card); } .video.empty p { margin: 4px 0; }
+.how.four { grid-template-columns: repeat(4, 1fr); }
+.mini { margin: 14px 0 0; padding-left: 20px; display: grid; gap: 8px; color: #c4d4e1; font-size: 15px; } .mini b { color: var(--text); }
+@media (max-width: 1000px) { .how.four { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 760px) { .how.four { grid-template-columns: 1fr; } .navlink { display: none; } }

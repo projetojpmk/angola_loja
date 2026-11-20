@@ -32,3 +32,11 @@ Criados automaticamente na primeira vez (Diamantes 100/200/500 e VIPs). Edita pr
 ## Segurança (já incluída)
 Sessão assinada, proteção CSRF, consultas parametrizadas, cabeçalhos de segurança, limites de pedidos, webhook com assinatura,
 aprovação de pagamento atómica (sem entregas duplicadas) e entregas interrompidas marcadas como falhadas para revisão manual.
+
+## v0.2
+- Página de produto (`/produto/<slug>`) com descrição, benefícios e "como funciona".
+- Comprovativo em PDF, PNG ou JPG (até 3 MB). O tipo é verificado pelo conteúdo do ficheiro e fica guardado na base de dados
+  (tabela `store_proofs`), porque o disco do Railway não é permanente. Só administradores o veem (`/admin`, "Ver ficheiro").
+- Categorias: Diamantes, VIPs, Carros e Casas. Cria produtos em `/admin/produtos` → **Novo produto**
+  (nome, categoria, preço, descrição, benefícios, imagem por link https e os dados de entrega em JSON).
+- Dependência nova: `multer` (o Railway instala sozinho).
