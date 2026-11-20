@@ -27,7 +27,7 @@ app.use((req, res, next) => {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'same-origin',
-    'Content-Security-Policy': "default-src 'self'; img-src 'self' https://cdn.discordapp.com data:; style-src 'self'; script-src 'none'; form-action 'self'; frame-ancestors 'none'",
+    'Content-Security-Policy': "default-src 'self'; img-src 'self' https://cdn.discordapp.com data:; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'none'; form-action 'self'; frame-ancestors 'none'",
   });
   next();
 });
@@ -78,7 +78,7 @@ const needAdmin = (req, res, next) => (res.locals.user && res.locals.user.admin)
 app.get('/', wrap(async (req, res) => {
   const products = await q('SELECT * FROM store_products WHERE active = 1 ORDER BY category, sort, id');
   products.forEach((p) => { if (typeof p.payload === 'string') p.payload = JSON.parse(p.payload); });
-  page(res, 'Loja', V.home({ products, csrf: res.locals.csrf, user: res.locals.user }));
+  res.send(V.layout({ title: 'Loja', user: res.locals.user, csrf: res.locals.csrf, flash: res.locals.flash, q: String(req.query.q || '').slice(0, 40), body: V.home({ products, csrf: res.locals.csrf, user: res.locals.user, cat: String(req.query.cat || 'todos'), q: String(req.query.q || '').slice(0, 40) }) }));
 }));
 
 app.get('/login', (req, res) => {
